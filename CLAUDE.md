@@ -76,7 +76,9 @@ ELO is computed over **full history**, everything else on the **2021+ slice**:
 Built so far: goals-per-side histogram with optional Poisson overlay
 (`plot_goal_distribution(overlay_poisson=)`); scoreline-probability heatmap; FC26+ELO
 clustermap of the 48 WC teams; goals-by-tournament boxenplot + ECDF; ELO unpredictability
-index by competition; heavy-vs-slight-favourite upset-rate; Poisson dispersion report.
+index by competition; heavy-vs-slight-favourite upset-rate; Poisson dispersion report;
+observed-vs-independence scoreline diff grid (the independence diagnostic); goals-vs-ELO-gap
+binned plot; goals-vs-candidate-feature faceted `lmplot` sweep.
 Helpers: `tournament_group()` buckets the 200 raw tournament strings into 5 (World Cup /
 Continental Cups / Qualifiers / Friendlies / Other); `WC_2026_TEAMS` (top cell) lists the
 48 participants.
@@ -96,6 +98,14 @@ Viz gotchas:
 - **`PercentFormatter(xmax=1)`** for percent-formatted colorbars/axes when values are 0–1.
 - **`sns.clustermap` caches the scipy check at import** — if it errors "requires scipy", restart
   the kernel.
+- **Bin-and-aggregate idiom**: `pd.cut(x, bins=edges)` (or `qcut` for equal counts) tags rows with
+  interval bins → `groupby("bin", observed=True)[col].agg(["mean","size"])` does every bin in one
+  pass; `[iv.mid for iv in idx]` gives numeric x for plotting.
+- **`df_with_stats` still holds future/unplayed 2026 matches** (`home_score` is pandas-3.0 nullable
+  `<NA>`) plus NaN team-stat rows. seaborn's regression backend (`lmplot`) calls `float()` per point
+  and dies on `NAType` → **`dropna` after `melt`** on the columns actually plotted (keeps the most
+  data per facet). Note `lmplot` fits plain OLS, not the log-link — coarse "is there a slope" check
+  only. This is the same NaN-team-stats issue that resurfaces at the modeling step.
 
 ## Where this is headed
 
@@ -106,14 +116,25 @@ Chronological train/test split; preserve no-leakage.
 - **Poisson check (done, marginal):** goals are **overdispersed** — var/mean ≈ 1.60 home /
   1.44 away / 1.54 neutral. But that's the *marginal*, where a mixture of many per-match λs
   inflates variance even if each match is Poisson. The decision-relevant test is **conditional**
-  dispersion: residual dispersion after fitting, or a homogeneous-ELO-slice proxy. **Open.**
+  dispersion: residual dispersion after fitting, or a homogeneous-ELO-slice proxy (the
+  `|elo gap| < 50` slice built for the independence test is the proxy). **Still open** — settles the
+  PoissonRegressor-vs-Tweedie choice at the modeling step.
 - **Model choice:** start with `PoissonRegressor` (log-link GLM; **`alpha` defaults to 1.0**, i.e.
   regularized, not 0). If conditional overdispersion survives, swap to
   `TweedieRegressor(power≈1.5, link="log")` — same GLM, Poisson is the `p=1` special case.
   (Negative Binomial is the natural discrete overdispersed distribution but isn't in sklearn.)
-- **Independence caveat:** two independent Poissons assume home/away goals are conditionally
-  independent. Real dependence is small and concentrated in low scores (Dixon-Coles). Diagnostic:
-  observed scoreline heatmap vs outer-product-of-marginals. DC τ correction deferred (out of budget).
+- **Independence (tested, resolved):** built the observed joint scoreline grid
+  (`pd.crosstab(home_score, away_score, normalize=True)`) vs the independence-implied grid
+  (`np.outer` of its two marginals) and diffed them. Pooled diff *over*-predicts 0-0 and
+  *under*-predicts lopsided scores — but that's the **backwards** sign from Dixon-Coles, so it's
+  **strength-heterogeneity mixture**, not genuine dependence (a 0 usually means you were the weaker
+  side). Confirmed: on the homogeneous slice `|elo_home_pre − elo_away_pre| < 50` the 0-0 bias
+  **vanishes**. Conclusion: scoreline dependence is mixture-driven; conditional residual negligible
+  → conditional-independence assumption is fine, **no DC τ correction needed.**
+- **Log-link form (tested, passed):** goals-vs-ELO-gap (binned via `pd.cut` + `groupby`) is cleanly
+  **linear** over the observed gap range — no nonlinear terms needed. Range is too modest to
+  distinguish exp from linear, which is a pass; keep the log link regardless for positivity (λ≥0)
+  and multiplicative effects.
 - **Evaluate:** RMSE on goals, W/D/L accuracy, Brier; calibration/reliability curve here.
 - **Then:** Monte Carlo of the 48-team tournament + seaborn viz.
 
