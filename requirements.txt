@@ -1,0 +1,11 @@
+# Core stack for the WorldCupPredictions skills-refresher project.
+# Python 3.13. Install: pip install -r requirements.txt
+numpy==2.4.6
+pandas==3.0.3
+scipy==1.17.1
+scikit-learn==1.9.0
+matplotlib==3.10.9
+seaborn==0.13.2
+
+# Notebook environment
+jupyterlab==4.5.8
